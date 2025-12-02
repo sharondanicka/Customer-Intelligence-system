@@ -43,7 +43,7 @@ client = OpenAI(api_key=api_key)
 
 # ----------------- NEWS FETCH -----------------
 def fetch_news(company, limit):
-    url = f"https://news.google.com/rss/search?q={company.replace(' ','+')}"
+    url = f"https://news.google.com/rss/search?q={company.replace(' ', '+')}"
     feed = feedparser.parse(url)
 
     articles = []
@@ -131,7 +131,3 @@ if st.button("🔍 Scan Market Signals"):
         analysis = analyze_article_with_llm(client, article, competitor)
 
         if not analysis:
-            continue
-
-        if analysis["attention_score"] >= ATTENTION_THRESHOLD:
-            with st.contai
