@@ -42,21 +42,23 @@ if not api_key:
 client = OpenAI(api_key=api_key)
 
 # ----------------- NEWS FETCH -----------------
-def fetch_news(company, limit):
+def fetch_news(company: str, limit: int):
     url = f"https://news.google.com/rss/search?q={company.replace(' ', '+')}"
     feed = feedparser.parse(url)
 
     articles = []
     for entry in feed.entries[:limit]:
-        articles.append({
-            "title": entry.get("title", ""),
-            "summary": entry.get("summary", ""),
-            "link": entry.get("link", "")
-        })
+        articles.append(
+            {
+                "title": entry.get("title", ""),
+                "summary": entry.get("summary", ""),
+                "link": entry.get("link", ""),
+            }
+        )
     return articles
 
 # ----------------- AI ANALYSIS -----------------
-def analyze_article_with_llm(client, article, competitor_name):
+def analyze_article_with_llm(client: OpenAI, article: dict, competitor_name: str):
     system_prompt = (
         "You are a market intelligence analyst at Cisco. "
         "Analyze competitor and market signals and return strict JSON only."
@@ -83,35 +85,46 @@ Link: {article['link']}
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            temperature=0.2
+            temperature=0.2,
         )
 
         text = response.choices[0].message.content.strip()
 
+        # Try to isolate JSON block
         start = text.find("{")
         end = text.rfind("}")
-        if start != -1 and end != -1:
-            text = text[start:end + 1]
+        if start != -1 and end != -1 and end > start:
+            text = text[start : end + 1]
 
-        return json.loads(text)
+        data = json.loads(text)
+        return data
 
     except Exception as e:
-        # ✅ DEMO FALLBACK (quota-safe)
+        # Demo fallback if quota or rate limit issues
         if "quota" in str(e).lower() or "429" in str(e):
             return {
                 "attention_score": 82,
                 "signal_type": "Competitor Expansion",
-                "summary": "Competitor announced a strategic expansion impacting enterprise networking and AI-led infrastructure.",
-                "why_it_matters": "This directly overlaps with Cisco’s core switching, security, and data center portfolio.",
+                "summary": (
+                    "Competitor announced a strategic expansion impacting enterprise "
+                    "networking and AI-led infrastructure."
+                ),
+                "why_it_matters": (
+                    "This overlaps with Cisco’s core switching, security, and data "
+                    "center portfolio and may influence competitive positioning."
+                ),
                 "next_actions": [
-                    "Alert account teams covering impacted customers",
-                    "Refresh competitive positioning and battlecards",
-                    "Proactively engage priority enterprise accounts"
+                    "Notify account teams covering impacted customers.",
+                    "Refresh competitive positioning and battlecards.",
+                    "Proactively engage priority enterprise accounts.",
                 ],
                 "confidence": 0.85,
-                "reasoning": "Fallback response used due to temporary AI quota limits."
+                "reasoning": (
+                    "Fallback response used due to temporary AI quota or availability "
+                    "limits. Pattern based on typical high-impact competitor moves."
+                ),
             }
 
         st.error(f"OpenAI API error: {e}")
@@ -123,11 +136,33 @@ if st.button("🔍 Scan Market Signals"):
 
     if not articles:
         st.warning("No recent news found.")
-        st.stop()
+    else:
+        st.subheader("🚨 High-Attention Signals")
 
-    st.subheader("🚨 High-Attention Signals")
+        for article in articles:
+            analysis = analyze_article_with_llm(client, article, competitor)
 
-    for article in articles:
-        analysis = analyze_article_with_llm(client, article, competitor)
+            if not analysis:
+                continue
 
-        if not analysis:
+            if analysis.get("attention_score", 0) >= ATTENTION_THRESHOLD:
+                # Simple container for compatibility
+                container = st.container()
+                with container:
+                    st.metric("Attention Score", analysis.get("attention_score", 0))
+                    st.subheader(article.get("title", "Untitled"))
+
+                    st.markdown("**Insight Summary**")
+                    st.write(analysis.get("summary", ""))
+
+                    st.markdown("**Why This Matters to Cisco**")
+                    st.write(analysis.get("why_it_matters", ""))
+
+                    st.markdown("**Recommended Next Actions**")
+                    for action in analysis.get("next_actions", []):
+                        st.write(f"• {action}")
+
+                    with st.expander("Internal Reasoning (SPO / Strategy Only)"):
+                        st.write(analysis.get("reasoning", ""))
+
+st.caption("Lightweight demo prototype for Cisco Customer Intelligence System")
