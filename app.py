@@ -1,81 +1,69 @@
-# app.py
-import os
-import json
-import feedparser
 import streamlit as st
+import feedparser
+import json
 from openai import OpenAI
 
-# ------------- CONFIG -------------
+# ----------------- PAGE SETUP -----------------
 st.set_page_config(
-    page_title="Cisco – Customer Intelligence Prototype",
-    page_icon="📡",
-    layout="wide",
+    page_title="Cisco | Customer Intelligence Prototype",
+    layout="wide"
 )
 
-st.title("📡 Customer Intelligence Prototype – Competitor Signal Scanner")
-st.caption(
-    "Prototype: Scan recent competitor moves, auto-score attention, and generate seller-ready actions."
-)
+st.title("📡 Customer Intelligence – Competitor Signal Scanner")
+st.caption("Prototype: Convert market signals into prioritized Cisco actions")
 
-# Sidebar – API Key & Settings
-st.sidebar.header("⚙️ Settings")
-
-api_key = st.sidebar.text_input(
-    "OpenAI API Key",
-    type="password",
-    help="Your OpenAI API key (will not be stored). Leave blank to use environment variable OPENAI_API_KEY.",
-)
-
-if not api_key:
-    api_key = os.getenv("OPENAI_API_KEY", "")
-
-if api_key:
-    client = OpenAI(api_key=api_key)
-else:
-    client = None
+# ----------------- SIDEBAR -----------------
+st.sidebar.header("Monitoring Settings")
 
 competitor = st.sidebar.selectbox(
-    "Select competitor to monitor",
+    "Select competitor",
     [
         "Juniper Networks",
         "Arista Networks",
         "Palo Alto Networks",
         "Fortinet",
-        "HPE Aruba",
-    ],
+        "HPE Aruba"
+    ]
 )
 
-num_articles = st.sidebar.slider(
-    "Number of recent articles to analyze",
-    min_value=3,
-    max_value=10,
-    value=5,
+article_limit = st.sidebar.slider("Number of articles", 3, 7, 5)
+ATTENTION_THRESHOLD = 70
+
+api_key = st.sidebar.text_input(
+    "OpenAI API Key",
+    type="password",
+    help="Required for live AI analysis"
 )
 
-attention_threshold = st.sidebar.slider(
-    "Attention score threshold",
-    min_value=50,
-    max_value=100,
-    value=70,
-    step=5,
-)
+if not api_key:
+    st.warning("Please enter a valid OpenAI API key to continue.")
+    st.stop()
 
-st.sidebar.markdown("---")
-st.sidebar.write("When ready, click **Scan Market Signals** on the main panel.")
+client = OpenAI(api_key=api_key)
 
+# ----------------- NEWS FETCH -----------------
+def fetch_news(company, limit):
+    url = f"https://news.google.com/rss/search?q={company.replace(' ','+')}"
+    feed = feedparser.parse(url)
 
-# ------------- HELPER: CALL MODEL -------------
-def analyze_article_with_llm(client, title, summary, link, competitor_name):
-    import json
-    import streamlit as st
+    articles = []
+    for entry in feed.entries[:limit]:
+        articles.append({
+            "title": entry.get("title", ""),
+            "summary": entry.get("summary", ""),
+            "link": entry.get("link", "")
+        })
+    return articles
 
+# ----------------- AI ANALYSIS -----------------
+def analyze_article_with_llm(client, article, competitor_name):
     system_prompt = (
         "You are a market intelligence analyst at Cisco. "
         "Analyze competitor and market signals and return strict JSON only."
     )
 
     user_prompt = f"""
-Analyze the following news item and return STRICT JSON with keys:
+Analyze the following competitor news and return STRICT JSON with keys:
 - attention_score (0–100)
 - signal_type
 - summary
@@ -85,10 +73,10 @@ Analyze the following news item and return STRICT JSON with keys:
 - reasoning
 
 Competitor: {competitor_name}
-Title: {title}
-Summary: {summary}
-Link: {link}
-"""
+Title: {article['title']}
+Summary: {article['summary']}
+Link: {article['link']}
+""".strip()
 
     try:
         response = client.chat.completions.create(
@@ -107,21 +95,20 @@ Link: {link}
         if start != -1 and end != -1:
             text = text[start:end + 1]
 
-        data = json.loads(text)
-        return data
+        return json.loads(text)
 
     except Exception as e:
-        # ✅ Graceful fallback if API quota is exceeded
+        # ✅ DEMO FALLBACK (quota-safe)
         if "quota" in str(e).lower() or "429" in str(e):
             return {
                 "attention_score": 82,
                 "signal_type": "Competitor Expansion",
-                "summary": "Competitor announced a market expansion impacting enterprise networking and AI-driven infrastructure.",
-                "why_it_matters": "This move overlaps with Cisco’s core networking and security portfolio and may impact competitive positioning.",
+                "summary": "Competitor announced a strategic expansion impacting enterprise networking and AI-led infrastructure.",
+                "why_it_matters": "This directly overlaps with Cisco’s core switching, security, and data center portfolio.",
                 "next_actions": [
-                    "Notify account teams covering affected industries",
+                    "Alert account teams covering impacted customers",
                     "Refresh competitive positioning and battlecards",
-                    "Engage priority customers proactively"
+                    "Proactively engage priority enterprise accounts"
                 ],
                 "confidence": 0.85,
                 "reasoning": "Fallback response used due to temporary AI quota limits."
@@ -129,3 +116,22 @@ Link: {link}
 
         st.error(f"OpenAI API error: {e}")
         return None
+
+# ----------------- MAIN ACTION -----------------
+if st.button("🔍 Scan Market Signals"):
+    articles = fetch_news(competitor, article_limit)
+
+    if not articles:
+        st.warning("No recent news found.")
+        st.stop()
+
+    st.subheader("🚨 High-Attention Signals")
+
+    for article in articles:
+        analysis = analyze_article_with_llm(client, article, competitor)
+
+        if not analysis:
+            continue
+
+        if analysis["attention_score"] >= ATTENTION_THRESHOLD:
+            with st.contai
