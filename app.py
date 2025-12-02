@@ -116,7 +116,7 @@ Link: {link}
     """.strip()
 
     response = client.responses.create(
-        model="gpt-4.1-mini",
+        model="gpt-4o-mini",
         input=prompt,
     )
 
@@ -259,3 +259,4 @@ st.caption(
     "This is a lightweight prototype for demonstrating how Cisco could turn external signals "
     "into prioritized, seller-ready actions using GenAI."
 )
+
