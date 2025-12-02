@@ -67,80 +67,70 @@ st.sidebar.write("When ready, click **Scan Market Signals** on the main panel.")
 # ------------- HELPER: CALL MODEL -------------
 def analyze_article_with_llm(client, title, summary, link, competitor_name):
     """
-    Calls the OpenAI model to:
-    - Decide if this signal matters to Cisco
+    Calls OpenAI to:
+    - Decide if this signal matters
     - Auto-score attention
     - Generate summary, why-it-matters, next actions
 
-    Returns a dict with:
-    {
-      "attention_score": int,
-      "signal_type": str,
-      "summary": str,
-      "why_it_matters": str,
-      "next_actions": [str, ...],
-      "confidence": float,
-      "reasoning": str
-    }
+    Returns a dict or None on error.
     """
-    prompt = f"""
-You are a market intelligence analyst at Cisco.
+    system_prompt = (
+        "You are a market intelligence analyst at Cisco. "
+        "You analyze competitor/news signals and return strict JSON."
+    )
 
-You will receive:
-- A competitor name
-- A single news item (title, summary, link)
-
-Your job is to decide whether Cisco should pay attention to this signal, and what sales / strategy teams should do.
-
-Return ONLY a valid JSON object with the following keys:
-- attention_score: integer between 0 and 100 (0 = ignore, 100 = mission critical)
+    user_prompt = f"""
+Analyze the following news item and return STRICT JSON with keys:
+- attention_score: integer 0-100 (0 = ignore, 100 = mission critical)
 - signal_type: short string like "New product", "Expansion", "M&A", "Partnership", "Regulation", "Competitive win"
-- summary: 2–4 bullet-style sentences summarizing the news in neutral, factual tone
-- why_it_matters: 2–4 sentences explaining why this is relevant (or not) to Cisco
+- summary: 2–4 sentences summarizing the news in neutral, factual tone
+- why_it_matters: 2–4 sentences explaining why this is (or is not) relevant to Cisco
 - next_actions: array of 3–5 concise next best actions for Cisco sales / strategy / SPO teams
-- confidence: number between 0 and 1 indicating how confident you are in your assessment
-- reasoning: 2–3 sentences of internal reasoning (for internal SPO / strategy only, not customer-facing)
+- confidence: number 0–1 (your confidence)
+- reasoning: 2–3 sentences of internal reasoning (for internal use only)
 
-IMPORTANT:
-- Be business-focused and concise.
-- If this is not relevant to Cisco, set attention_score <= 40 and explain why in "why_it_matters".
-- Ensure the JSON is strictly valid and contains all keys.
+If this is not relevant to Cisco, set attention_score <= 40 and explain why.
 
-Now analyze this item:
+Respond with ONLY a JSON object. No extra text.
 
 Competitor: {competitor_name}
 
 Title: {title}
 Summary: {summary}
 Link: {link}
-    """.strip()
+""".strip()
 
-    response = client.responses.create(
-        model="gpt-4o-mini",
-        input=prompt,
-    )
-
-    # Extract text from response
     try:
-        text = response.output[0].content[0].text
-    except Exception:
-        # Fallback: try older-like structure
-        text = str(response)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",   # widely available
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+        )
+    except Exception as e:
+        # Show the real OpenAI error in the UI
+        st.error(f"OpenAI API error: {e}")
+        return None
 
-    # Try parsing JSON
+    # Extract the text content
+    text = response.choices[0].message.content.strip()
+
+    # Try to find and parse JSON
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        # If model returned additional text, attempt to find JSON substring
+        # In case model adds some extra text, try to isolate JSON block
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            try:
-                data = json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                data = None
+            json_str = text[start : end + 1]
         else:
-            data = None
+            json_str = text
+        data = json.loads(json_str)
+    except Exception as e:
+        st.error(f"Failed to parse model JSON: {e}")
+        st.text(text)  # show raw output so you can debug
+        return None
 
     return data
 
@@ -259,4 +249,5 @@ st.caption(
     "This is a lightweight prototype for demonstrating how Cisco could turn external signals "
     "into prioritized, seller-ready actions using GenAI."
 )
+
 
