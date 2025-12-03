@@ -1,22 +1,23 @@
 import streamlit as st
 import feedparser
-import json
-from openai import OpenAI
+import random
 
-# ----------------- PAGE SETUP -----------------
+# ---------------- PAGE SETUP ----------------
 st.set_page_config(
     page_title="Cisco | Customer Intelligence Prototype",
     layout="wide"
 )
 
-st.title("📡 Customer Intelligence – Competitor Signal Scanner")
-st.caption("Prototype: Convert market signals into prioritized Cisco actions")
+st.title("📡 Customer Intelligence – Signal Prioritization Console")
+st.caption(
+    "Prototype: Identify, prioritize, and act on market signals using a structured Impact × Urgency framework"
+)
 
-# ----------------- SIDEBAR -----------------
-st.sidebar.header("Monitoring Settings")
+# ---------------- SIDEBAR ----------------
+st.sidebar.header("Monitoring Controls")
 
 competitor = st.sidebar.selectbox(
-    "Select competitor",
+    "Monitor competitor",
     [
         "Juniper Networks",
         "Arista Networks",
@@ -26,143 +27,146 @@ competitor = st.sidebar.selectbox(
     ]
 )
 
-article_limit = st.sidebar.slider("Number of articles", 3, 7, 5)
-ATTENTION_THRESHOLD = 70
-
-api_key = st.sidebar.text_input(
-    "OpenAI API Key",
-    type="password",
-    help="Required for live AI analysis"
+article_limit = st.sidebar.slider(
+    "Number of signals to scan",
+    3, 6, 4
 )
 
-if not api_key:
-    st.warning("Please enter a valid OpenAI API key to continue.")
-    st.stop()
+ATTENTION_THRESHOLD = 70
 
-client = OpenAI(api_key=api_key)
+# ---------------- METRIC EXPLANATION (UI) ----------------
+with st.expander("ℹ️ How we determine importance (Attention Score)"):
+    st.markdown(
+        """
+### 🔎 Signal Prioritization Methodology
 
-# ----------------- NEWS FETCH -----------------
-def fetch_news(company: str, limit: int):
+Each market signal is evaluated using an **Impact × Urgency framework** to ensure sellers
+focus only on items that require a decision.
+
+**Impact** answers:
+- *If this is true, how much does it affect Cisco’s business?*
+- Portfolio overlap, competitive displacement risk, customer relevance
+
+**Urgency** answers:
+- *How quickly does Cisco need to act?*
+- Time sensitivity, deal cycle impact, competitive momentum
+
+### 🎯 Attention Score
+The **Attention Score (0–100)** combines Impact and Urgency:
+- **80–100** → Immediate seller action required
+- **65–79** → Strategic monitoring and planning
+- **<65** → Informational or low priority
+
+This ensures intelligence is **actionable**, not just informative.
+"""
+    )
+
+# ---------------- DEMO ANALYSIS ENGINE ----------------
+def generate_demo_analysis():
+    impact = random.choice(["High", "Medium", "Low"])
+    urgency = random.choice(["High", "Medium", "Low"])
+
+    score_map = {
+        ("High", "High"): random.randint(85, 95),
+        ("High", "Medium"): random.randint(75, 85),
+        ("Medium", "High"): random.randint(70, 80),
+        ("Medium", "Medium"): random.randint(60, 70),
+    }
+
+    attention_score = score_map.get((impact, urgency), random.randint(45, 60))
+
+    return {
+        "impact": impact,
+        "urgency": urgency,
+        "attention_score": attention_score,
+        "what_changed": [
+            "Competitor expanded focus from selective wins to enterprise-scale deals",
+            "Go-to-market messaging shifted toward platform-led positioning",
+        ],
+        "why_it_matters": [
+            "Direct overlap with Cisco’s installed base in core enterprise accounts",
+            "Potential increase in competitive pressure over the next 1–2 quarters",
+        ],
+        "recommended_actions": [
+            "Identify top at-risk accounts within the seller portfolio",
+            "Equip sellers with refreshed competitive positioning",
+            "Engage partners for proactive customer outreach",
+        ],
+    }
+
+# ---------------- NEWS FETCH ----------------
+def fetch_news(company, limit):
     url = f"https://news.google.com/rss/search?q={company.replace(' ', '+')}"
     feed = feedparser.parse(url)
 
-    articles = []
+    titles = []
     for entry in feed.entries[:limit]:
-        articles.append(
-            {
-                "title": entry.get("title", ""),
-                "summary": entry.get("summary", ""),
-                "link": entry.get("link", ""),
-            }
-        )
-    return articles
+        titles.append(entry.get("title", ""))
+    return titles
 
-# ----------------- AI ANALYSIS -----------------
-def analyze_article_with_llm(client: OpenAI, article: dict, competitor_name: str):
-    system_prompt = (
-        "You are a market intelligence analyst at Cisco. "
-        "Analyze competitor and market signals and return strict JSON only."
-    )
+# ---------------- MAIN ACTION ----------------
+st.markdown("### 🚨 Prioritized Market Signals")
 
-    user_prompt = f"""
-Analyze the following competitor news and return STRICT JSON with keys:
-- attention_score (0–100)
-- signal_type
-- summary
-- why_it_matters
-- next_actions (array of 3 strings)
-- confidence (0–1)
-- reasoning
-
-Competitor: {competitor_name}
-Title: {article['title']}
-Summary: {article['summary']}
-Link: {article['link']}
-""".strip()
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.2,
-        )
-
-        text = response.choices[0].message.content.strip()
-
-        # Try to isolate JSON block
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            text = text[start : end + 1]
-
-        data = json.loads(text)
-        return data
-
-    except Exception as e:
-        # Demo fallback if quota or rate limit issues
-        if "quota" in str(e).lower() or "429" in str(e):
-            return {
-                "attention_score": 82,
-                "signal_type": "Competitor Expansion",
-                "summary": (
-                    "Competitor announced a strategic expansion impacting enterprise "
-                    "networking and AI-led infrastructure."
-                ),
-                "why_it_matters": (
-                    "This overlaps with Cisco’s core switching, security, and data "
-                    "center portfolio and may influence competitive positioning."
-                ),
-                "next_actions": [
-                    "Notify account teams covering impacted customers.",
-                    "Refresh competitive positioning and battlecards.",
-                    "Proactively engage priority enterprise accounts.",
-                ],
-                "confidence": 0.85,
-                "reasoning": (
-                    "Fallback response used due to temporary AI quota or availability "
-                    "limits. Pattern based on typical high-impact competitor moves."
-                ),
-            }
-
-        st.error(f"OpenAI API error: {e}")
-        return None
-
-# ----------------- MAIN ACTION -----------------
-if st.button("🔍 Scan Market Signals"):
+if st.button("Scan Market Signals"):
     articles = fetch_news(competitor, article_limit)
 
     if not articles:
-        st.warning("No recent news found.")
+        st.warning("No recent market signals found.")
     else:
-        st.subheader("🚨 High-Attention Signals")
+        for idx, title in enumerate(articles):
+            analysis = generate_demo_analysis()
 
-        for article in articles:
-            analysis = analyze_article_with_llm(client, article, competitor)
+            if analysis["attention_score"] >= ATTENTION_THRESHOLD:
+                with st.container(border=True):
+                    header_cols = st.columns([4, 1])
 
-            if not analysis:
-                continue
+                    with header_cols[0]:
+                        st.subheader(title)
 
-            if analysis.get("attention_score", 0) >= ATTENTION_THRESHOLD:
-                # Simple container for compatibility
-                container = st.container()
-                with container:
-                    st.metric("Attention Score", analysis.get("attention_score", 0))
-                    st.subheader(article.get("title", "Untitled"))
+                    with header_cols[1]:
+                        st.metric(
+                            "Attention Score",
+                            analysis["attention_score"],
+                            help="Represents combined Impact and Urgency on a 0–100 scale"
+                        )
 
-                    st.markdown("**Insight Summary**")
-                    st.write(analysis.get("summary", ""))
+                    # ✅ IMPACT × URGENCY BADGE WITH TOOLTIP
+                    st.markdown(
+                        f"""
+**Priority Classification**  
+🧭 Impact: **{analysis['impact']}** &nbsp;&nbsp;|&nbsp;&nbsp; ⏱️ Urgency: **{analysis['urgency']}**
+""",
+                        help=(
+                            "Impact estimates potential business effect on Cisco. "
+                            "Urgency reflects how quickly sellers should act."
+                        ),
+                    )
 
-                    st.markdown("**Why This Matters to Cisco**")
-                    st.write(analysis.get("why_it_matters", ""))
+                    st.markdown("### 🔍 What Changed (Beyond the Headline)")
+                    for w in analysis["what_changed"]:
+                        st.write("•", w)
 
-                    st.markdown("**Recommended Next Actions**")
-                    for action in analysis.get("next_actions", []):
-                        st.write(f"• {action}")
+                    st.markdown("### ❗ Why This Matters to You")
+                    for m in analysis["why_it_matters"]:
+                        st.write("•", m)
 
-                    with st.expander("Internal Reasoning (SPO / Strategy Only)"):
-                        st.write(analysis.get("reasoning", ""))
+                    st.markdown("### ✅ Recommended Actions (Near-Term)")
+                    for a in analysis["recommended_actions"]:
+                        st.write("•", a)
 
-st.caption("Lightweight demo prototype for Cisco Customer Intelligence System")
+                    st.markdown("---")
+                    st.markdown("### 👤 Seller Feedback")
+
+                    fb_cols = st.columns(3)
+                    with fb_cols[0]:
+                        st.button("📌 Create Opportunity", key=f"opp_{idx}")
+
+                    with fb_cols[1]:
+                        st.button("⭐ Mark as Interesting", key=f"int_{idx}")
+
+                    with fb_cols[2]:
+                        st.button("❌ Not Relevant", key=f"nr_{idx}")
+
+st.caption(
+    "Demo prototype – showcases structured prioritization, seller interaction, and explainable metrics"
+)
